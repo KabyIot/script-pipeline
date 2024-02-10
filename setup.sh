@@ -1,38 +1,35 @@
 #!/bin/bash
 
-# Step 1: This step is manual and involves creating a new Ubuntu Server 22.04 instance.
+# Ensure the script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "This script must be run as root" 1>&2
+  exit 1
+fi
 
-# Step 2: Elevate to root, script should be run with sudo or as root
-
-# Step 3: Update and Upgrade the System
+# Update and upgrade packages
 apt-get update && apt-get upgrade -y
 
-# Step 4: Install Docker
-apt-get install -y apt-transport-https ca-certificates curl software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-apt-get update
-apt-get install -y docker-ce
+# Install necessary packages
+apt-get install -y docker.io docker-compose git openssl
 
-# Step 5: Install Docker Compose
-curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-
-# Step 6: Clone the Git Repository
+# Clone the repository
+cd /root
 git clone https://bitbucket.org/enocean-cloud/iotconnector-docs.git
 
-# Step 7: Generate Self-signed Certificates
-# Assuming the current working directory is suitable for generating and storing certificates
-mkdir -p export && cd export
+# Install and configure self-signed certificates
+mkdir -p /export && cd /export
 
-# Use OpenSSL to generate the CA and certificates
-openssl genrsa -des3 -out myCA.key 2048
-openssl req -x509 -new -nodes -key myCA.key -sha256 -days 1825 -out myCA.pem
-openssl genrsa -out dev.localhost.key 2048
-openssl req -new -key dev.localhost.key -out dev.localhost.csr
+# Generate CA Key and Certificate
+openssl genrsa -des3 -out /export/myCA.key 2048
+openssl req -x509 -new -nodes -key /export/myCA.key -sha256 -days 1825 -out /export/myCA.pem
+
+# Generate server key and CSR
+openssl genrsa -out /export/dev.localhost.key 2048
+openssl req -new -key /export/dev.localhost.key -out /export/dev.localhost.csr
 
 # Create localhost.ext file
-cat <<EOF > localhost.ext
+CURRENT_IP=$(hostname -I | awk '{print $1}')
+cat > /export/localhost.ext <<EOF
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 subjectAltName = @alt_names
@@ -40,10 +37,25 @@ subjectKeyIdentifier = hash
 
 [alt_names]
 DNS.1 = localhost
-IP.1 = 192.168.1.2
+IP.1 = $CURRENT_IP
 EOF
 
-# Generate the final certificate
-openssl x509 -req -in dev.localhost.csr -CA myCA.pem -CAkey myCA.key -CAcreateserial -out dev.localhost.crt -days 825 -sha256 -extfile localhost.ext
+# Generate server certificate
+openssl x509 -req -in /export/dev.localhost.csr -CA /export/myCA.pem -CAkey /export/myCA.key -CAcreateserial -out /export/dev.localhost.crt -days 825 -sha256 -extfile /export/localhost.ext
 
-echo "Setup completed successfully."
+# Update docker-compose.yml file
+cd /root/iotconnector-docs/deploy/local_deployment
+sed -i 's/BASIC_AUTH_USERNAME=.*/BASIC_AUTH_USERNAME=admin/' docker-compose.yml
+sed -i 's/BASIC_AUTH_PASSWORD=.*/BASIC_AUTH_PASSWORD=kaby01/' docker-compose.yml
+
+# Update secrets in docker-compose.yml
+sed -i 's|../nginx/dev.localhost.crt|/export/dev.localhost.crt|' docker-compose.yml
+sed -i 's|../nginx/dev.localhost.key|/export/dev.localhost.key|' docker-compose.yml
+
+# Start the docker containers
+docker-compose up -d
+
+# Check the status of the containers
+docker-compose ps
+
+echo "Setup complete. Check above output for container status."
