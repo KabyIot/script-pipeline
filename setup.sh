@@ -46,7 +46,7 @@ openssl x509 -req -in /export/dev.localhost.csr -CA /export/myCA.pem -CAkey /exp
 # Update docker-compose.yml file
 cd /root/iotconnector-docs/deploy/local_deployment
 sed -i 's/BASIC_AUTH_USERNAME=.*/BASIC_AUTH_USERNAME=admin/' docker-compose.yml
-sed -i 's/BASIC_AUTH_PASSWORD=.*/BASIC_AUTH_PASSWORD=kaby01/' docker-compose.yml
+sed -i 's/BASIC_AUTH_PASSWORD=.*/BASIC_AUTH_PASSWORD=Random123/' docker-compose.yml
 
 # Update secrets in docker-compose.yml
 sed -i 's|../nginx/dev.localhost.crt|/export/dev.localhost.crt|' docker-compose.yml
