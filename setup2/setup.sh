@@ -30,11 +30,14 @@ mkdir -p "/root/${CUSTOMER_ID}_iotc/certs"
 # Generera självsignerade certifikat
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.key" -out "/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.crt" -subj "/C=SE/ST=State/L=City/O=Organization/CN=localhost"
 
-# Anpassa docker-compose.yml med kundunika parametrar
-sed -i "s/secret-proxy-certificate/file: \/root\/${CUSTOMER_ID}_iotc\/certs\/${CUSTOMER_ID}_dev.localhost.crt/" docker-compose.yml
-sed -i "s/secret-proxy-key/file: \/root\/${CUSTOMER_ID}_iotc\/certs\/${CUSTOMER_ID}_dev.localhost.key/" docker-compose.yml
+# Säkerhetskopiera ursprungliga docker-compose.yml
+cp docker-compose.yml docker-compose.yml.bak
 
-# Använd sed eller annat verktyg för att sätta miljövariabler och andra kundunika parametrar i docker-compose.yml
+# Uppdatera docker-compose.yml med de nya certifikatvägarna
+sed -i "s|../nginx/dev.localhost.crt|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.crt|" docker-compose.yml
+sed -i "s|../nginx/dev.localhost.key|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.key|" docker-compose.yml
+
+# Kontrollera om det finns specifika radnummer eller strukturer som behöver ändras, och använd sed eller annat verktyg försiktigt
 
 # Starta Docker containers
 docker-compose up -d
@@ -43,4 +46,3 @@ docker-compose up -d
 docker-compose ps
 
 echo "Installationen är klar. Kontrollera output ovan för containerstatus."
-
