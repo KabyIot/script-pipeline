@@ -37,6 +37,11 @@ cp docker-compose.yml docker-compose.yml.bak
 sed -i "s|../nginx/dev.localhost.crt|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.crt|" docker-compose.yml
 sed -i "s|../nginx/dev.localhost.key|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.key|" docker-compose.yml
 
+# Updatera docker-compose.yml fil
+cd /root/iotconnector-docs/deploy/local_deployment
+sed -i 's/BASIC_AUTH_USERNAME=.*/BASIC_AUTH_USERNAME=admin/' docker-compose.yml
+sed -i 's/BASIC_AUTH_PASSWORD=.*/BASIC_AUTH_PASSWORD=Random123/' docker-compose.yml
+
 # Kontrollera om det finns specifika radnummer eller strukturer som behöver ändras, och använd sed eller annat verktyg försiktigt
 
 # Starta Docker containers
