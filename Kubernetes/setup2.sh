@@ -86,13 +86,43 @@ kubeadm init
 mkdir -p /root/.kube
 cp -i /etc/kubernetes/admin.conf /root/.kube/config
 
+# apply network weave
 kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
 
+# Install Kompose, used for converting docker-compose.yml
 curl -L https://github.com/kubernetes/kompose/releases/download/v1.32.0/kompose-linux-amd64 -o kompose
 chmod +x kompose
 mv kompose /usr/local/bin/
 #verify if weave is deployed successfully
 kubectl get pods -A
+
+# Installing Helm for Kubernetes Dashbaord
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
+
+# Installing Kubernetes Dashboard via Helm installer
+helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace kubernetes-dashboard
+
+# Changes Kubernetes-Dashboard pod from Pending into Running State
+kubectl taint nodes ubuntu-linux-22 node-role.kubernetes.io/control-plane:NoSchedule-
+
+# Get the current host primary IP address
+HOST_IP=$(hostname -I | awk '{print $1}')
+
+# Export POD_NAME using kubectl to get the name of the Kubernetes dashboard pod
+export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
+
+# Echo the HTTPS URL with the dynamically fetched host IP
+echo https://$HOST_IP
+
+# Forward the port from the Kubernetes dashboard pod to the host, using the dynamically fetched host IP
+kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $HOST_IP
+
+# I want to Echo the URL again for convenience :)
+echo https://$HOST_IP
+
 
 kubeadm token create --print-join-command
 
@@ -117,7 +147,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "/root/${CUSTOMER_ID
 sed -i "s|../nginx/dev.localhost.crt|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.crt|" docker-compose.yml
 sed -i "s|../nginx/dev.localhost.key|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.key|" docker-compose.yml
 
-# Update docker-compose.yml file
+# Update docker-compose.yml file proxy name and user
 sed -i 's/BASIC_AUTH_USERNAME=.*/BASIC_AUTH_USERNAME=admin/' docker-compose.yml
 sed -i 's/BASIC_AUTH_PASSWORD=.*/BASIC_AUTH_PASSWORD=Random123/' docker-compose.yml
 
