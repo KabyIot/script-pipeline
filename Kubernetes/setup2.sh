@@ -106,57 +106,19 @@ helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
 helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace kubernetes-dashboard
 
 # Fetch the name of the first node in the cluster
-NODE_NAME=$(kubectl get nodes --no-headers | awk '{print $1; exit}')
-
 # Apply the taint to the dynamically fetched node name
+NODE_NAME=$(kubectl get nodes --no-headers | awk '{print $1; exit}')
 kubectl taint nodes $NODE_NAME node-role.kubernetes.io/control-plane:NoSchedule-
 
 # Export POD_NAME from kubectl-cmd
-
-export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
-
 # Get local ip address from hostname -I
-
-LOCAL_IP=$(hostname -I | awk '{print $1}')
-
 # Skriv ut URL:en med den lokala IP-adressen
-
-echo "https://$LOCAL_IP"
-
 # run kubectl port-forward with the local IP-address
-
+export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
+LOCAL_IP=$(hostname -I | awk '{print $1}')
+echo "https://$LOCAL_IP"
 kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $LOCAL_IP
-
-# Write and save a new file for token
-
-cat <<EOF > k8s-dashboard-account.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: admin-user
-  namespace: kube-system
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: admin-user
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
-  name: admin-user
-  namespace: kube-system
-EOF
-
-# Create user
-kubectl create -f k8s-dashboard-account.yaml
-serviceaccount/admin-user created
-clusterrolebinding.rbac.authorization.k8s.io/admin-user created
-
-# Get token for Kubernetes-Dashboard at https://hostname -p 
-kubectl -n kube-system create token admin-user
+https://$LOCAL_IP
 
 kubeadm token create --print-join-command
 
@@ -197,3 +159,33 @@ subjectKeyIdentifier = hash
 DNS.1 = localhost
 IP.1 = $CURRENT_IP
 EOF
+
+# Write and save a new file for token
+cat <<EOF > k8s-dashboard-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kube-system
+EOF
+
+# Create user
+kubectl create -f k8s-dashboard-account.yaml
+serviceaccount/admin-user created
+clusterrolebinding.rbac.authorization.k8s.io/admin-user created
+
+# Get token for Kubernetes-Dashboard at https://hostname -p 
+kubectl -n kube-system create token admin-user
