@@ -105,8 +105,11 @@ chmod 700 get_helm.sh
 helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
 helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace kubernetes-dashboard
 
-# Changes Kubernetes-Dashboard pod from Pending into Running State
-kubectl taint nodes ubuntu-linux-22 node-role.kubernetes.io/control-plane:NoSchedule-
+# Fetch the name of the first node in the cluster
+NODE_NAME=$(kubectl get nodes --no-headers | awk '{print $1; exit}')
+
+# Apply the taint to the dynamically fetched node name
+kubectl taint nodes $NODE_NAME node-role.kubernetes.io/control-plane:NoSchedule-
 
 # Get the current host primary IP address
 HOST_IP=$(hostname -I | awk '{print $1}')
