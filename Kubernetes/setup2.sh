@@ -111,21 +111,52 @@ NODE_NAME=$(kubectl get nodes --no-headers | awk '{print $1; exit}')
 # Apply the taint to the dynamically fetched node name
 kubectl taint nodes $NODE_NAME node-role.kubernetes.io/control-plane:NoSchedule-
 
-# Get the current host primary IP address
-HOST_IP=$(hostname -I | awk '{print $1}')
+# Export POD_NAME from kubectl-cmd
 
-# Export POD_NAME using kubectl to get the name of the Kubernetes dashboard pod
 export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
 
-# Echo the HTTPS URL with the dynamically fetched host IP
-echo https://$HOST_IP
+# Get local ip address from hostname -I
 
-# Forward the port from the Kubernetes dashboard pod to the host, using the dynamically fetched host IP
-kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $HOST_IP
+LOCAL_IP=$(hostname -I | awk '{print $1}')
 
-# I want to Echo the URL again for convenience :)
-echo https://$HOST_IP
+# Skriv ut URL:en med den lokala IP-adressen
 
+echo "https://$LOCAL_IP"
+
+# run kubectl port-forward with the local IP-address
+
+kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $LOCAL_IP
+
+# Write and save a new file for token
+
+cat <<EOF > k8s-dashboard-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kube-system
+EOF
+
+# Create user
+kubectl create -f k8s-dashboard-account.yaml
+serviceaccount/admin-user created
+clusterrolebinding.rbac.authorization.k8s.io/admin-user created
+
+# Get token for Kubernetes-Dashboard at https://hostname -p 
+kubectl -n kube-system create token admin-user
 
 kubeadm token create --print-join-command
 
