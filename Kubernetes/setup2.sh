@@ -83,31 +83,6 @@ NODE_NAME=$(kubectl get nodes --no-headers | awk '{print $1; exit}')
 # Apply the taint to the dynamically fetched node name
 kubectl taint nodes $NODE_NAME node-role.kubernetes.io/control-plane:NoSchedule-
 
-# Get the current host primary IP address
-HOST_IP=$(hostname -I | awk '{print $1}')
-# Export POD_NAME from kubectl-cmd
-
-# Export POD_NAME using kubectl to get the name of the Kubernetes dashboard pod
-export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
-
-# Echo the HTTPS URL with the dynamically fetched host IP
-echo https://$HOST_IP
-# Get local ip address from hostname -I
-
-# Forward the port from the Kubernetes dashboard pod to the host, using the dynamically fetched host IP
-kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $HOST_IP
-LOCAL_IP=$(hostname -I | awk '{print $1}')
-
-# I want to Echo the URL again for convenience :)
-echo https://$HOST_IP
-# Skriv ut URL:en med den lokala IP-adressen
-
-echo "https://$LOCAL_IP"
-
-# run kubectl port-forward with the local IP-address
-
-kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $LOCAL_IP
-
 # Write and save a new file for token
 
 cat <<EOF > k8s-dashboard-account.yaml
@@ -169,3 +144,27 @@ subjectKeyIdentifier = hash
 DNS.1 = localhost
 IP.1 = $CURRENT_IP
 EOF
+
+# Get the current host primary IP address
+HOST_IP=$(hostname -I | awk '{print $1}')
+
+# Debug: Print the HOST_IP to verify it's being set correctly
+echo "Detected HOST_IP: $HOST_IP"
+
+# Check if HOST_IP is empty and abort if so
+if [ -z "$HOST_IP" ]; then
+  echo "No IP address detected. Please check your network configuration."
+  exit 1
+fi
+
+# Export POD_NAME using kubectl to get the name of the Kubernetes dashboard pod
+export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
+
+# Echo the HTTPS URL with the dynamically fetched host IP
+echo "https://$HOST_IP"
+
+# Forward the port from the Kubernetes dashboard pod to the host, using the dynamically fetched host IP
+kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $HOST_IP
+
+# Optionally, you can echo the URL again for convenience
+echo "https://$HOST_IP"
