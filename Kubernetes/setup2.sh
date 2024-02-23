@@ -145,6 +145,8 @@ DNS.1 = localhost
 IP.1 = $CURRENT_IP
 EOF
 
+sleep 1m
+
 # Get the current host primary IP address
 HOST_IP=$(hostname -I | awk '{print $1}')
 
