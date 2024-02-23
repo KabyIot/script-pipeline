@@ -108,8 +108,6 @@ EOF
 
 # Create user
 kubectl create -f k8s-dashboard-account.yaml
-serviceaccount/admin-user created
-clusterrolebinding.rbac.authorization.k8s.io/admin-user created
 
 # Get token for Kubernetes-Dashboard at https://hostname -p 
 kubectl -n kube-system create token admin-user
