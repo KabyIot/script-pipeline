@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run as Root
 if [[ "$(id -u)" -ne 0 ]]; then
-    echo "Det här skriptet måste köras som root."
+    echo "this script needs to run as root."
     exit 1
 fi
 # Update and upgrade package
