@@ -1,9 +1,27 @@
 #!/bin/bash
-# Run as Root
+
+# Disable unattended-upgrades
+sudo systemctl stop unattended-upgrades.service
+sudo systemctl disable unattended-upgrades.service
+
+# Function to check for dpkg/apt lock
+wait_for_apt_locks() {
+    echo "Checking for apt locks..."
+    while lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || lsof /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        echo "Waiting for other software managers to finish..."
+        sleep 5
+    done
+}
+
+# Ensure script is run as root
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "This script needs to run as root."
     exit 1
 fi
+
+# Wait for apt locks to be released
+wait_for_apt_locks
+
 # Update and upgrade package
 apt-get update && apt-get upgrade -y
 # Install necessary package
