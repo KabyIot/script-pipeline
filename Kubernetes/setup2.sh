@@ -85,7 +85,7 @@ echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://a
 
 # Update apt package index, install kubelet, kubeadm and kubectl, and pin their version
 apt-get update
-apt-get install -y kubelet kubeadm kubectl
+apt-get install -y kubelet kubeadm kubectl || { echo "Installation failed"; exit 1; }
 apt-mark hold kubelet kubeadm kubectl
 
 # Enable and start kubelet service
