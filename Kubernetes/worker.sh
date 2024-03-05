@@ -1,5 +1,8 @@
 #!/bin/bash
 
+## Set the a new hostname for worker node 1 vm and worker node 2 vm or else it will not work with the masternode, if they have same hostname, change it with this command :
+sudo hostnamectl set-hostname worker1
+
 # Disable unattended-upgrades
 sudo systemctl stop unattended-upgrades.service
 sudo systemctl disable unattended-upgrades.service
@@ -84,11 +87,25 @@ curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
 
 # Update apt package index, install kubelet, kubeadm and kubectl, and pin their version
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
+
+sudo apt-mark unhold kubelet kubeadm kubectl
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
 
 # Enable and start kubelet service
 systemctl daemon-reload
 systemctl start kubelet
 systemctl enable kubelet.service
+
+sleep 10s
+
+# put below the real "kubeadm join token", the  Worker node will join the masterNode(Cluster) after installation is done.
+
+kubeadm join 197.128.23.103:6443 --token d98h3k.gap9x0dfg05m2xw2 --discovery-token-ca-cert-hash sha256:23ee0bf9f36a7a6a801755f158335a5865f59440be324edf1f0be3412 
+
+## restart kubelet and containerd on worker vm.
+
+sleep 20s
+sudo systemctl restart kubelet
+sudo systemctl restart containerd
