@@ -2,7 +2,7 @@
 
 ## Set the a new hostname for worker node 1 vm and worker node 2 vm or else it will not work with the masternode, if they have same hostname, change it with this command :
 sudo hostnamectl set-hostname worker1
-
+mkdir -p /path/storage/node
 # Disable unattended-upgrades
 sudo systemctl stop unattended-upgrades.service
 sudo systemctl disable unattended-upgrades.service
