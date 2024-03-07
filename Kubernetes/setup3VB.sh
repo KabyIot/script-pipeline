@@ -1,188 +1,153 @@
 #!/bin/bash
 
-# Disable unattended-upgrades
-sudo systemctl stop unattended-upgrades.service
-sudo systemctl disable unattended-upgrades.service
+# Define the file path for the namespace name
+NAMESPACE_FILE="namespace_name.txt"
 
-# Function to check for dpkg/apt lock
-wait_for_apt_locks() {
-    echo "Checking for apt locks..."
-    while lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || lsof /var/lib/apt/lists/lock >/dev/null 2>&1; do
-        echo "Waiting for other software managers to finish..."
-        sleep 5
-    done
-}
-
-# Ensure script is run as root
-if [[ "$(id -u)" -ne 0 ]]; then
-    echo "This script needs to run as root."
-    exit 1
-fi
-
-# Wait for apt locks to be released
-wait_for_apt_locks
-
-# Update and upgrade package
-apt-get update && apt-get upgrade -y
-# Install necessary package
-apt-get install -y docker.io docker-compose git openssl
-# Disable swap & add kernel settings
-swapoff -a
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-# Add kernel settings & Enable IP tables (CNI Prerequisites)
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-EOF
-modprobe overlay
-modprobe br_netfilter
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-EOF
-sysctl --system
-# Install containerd run time dependencies
-apt-get update -y
-apt-get install ca-certificates curl gnupg lsb-release -y
-# Add Docker’s official GPG key
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-# Set up the repository
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-# Install containerd
-apt-get update -y
-apt-get install containerd.io -y
-# Generate default configuration file for containerd
-containerd config default > /etc/containerd/config.toml
-# Update configure cgroup as systemd for containerd
-sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
-# Restart and enable containerd service
-systemctl restart containerd
-systemctl enable containerd
-# Installing kubeadm, kubelet and kubectl
-apt-get update
-apt-get install -y apt-transport-https ca-certificates curl
-# Download the Google Cloud public signing key
-curl -fsSL https://dl.k8s.io/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-archive-keyring.gpg
-# Add the Kubernetes apt repository
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-# Update apt package index, install kubelet, kubeadm and kubectl, and pin their version
-apt-get update
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-# Enable and start kubelet service
-systemctl daemon-reload
-systemctl start kubelet
-systemctl enable kubelet.service
-# Initialize Kubeadm
-sudo kubeadm init --apiserver-advertise-address=192.168.56.103 --pod-network-cidr=10.244.0.0/16
-mkdir -p /root/.kube
-cp -i /etc/kubernetes/admin.conf /root/.kube/config
-# apply network weave
-kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
-# Install Kompose, used for converting docker-compose.yml
-curl -L https://github.com/kubernetes/kompose/releases/download/v1.32.0/kompose-linux-amd64 -o kompose
-chmod +x kompose
-mv kompose /usr/local/bin/
-#verify if weave is deployed successfully
-kubectl get pods -A
-# Installing Helm for Kubernetes Dashbaord
-curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-chmod 700 get_helm.sh
-./get_helm.sh
-# Installing Kubernetes Dashboard via Helm installer
-helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
-helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace kubernetes-dashboard
-# Fetch the name of the first node in the cluster
-NODE_NAME=$(kubectl get nodes --no-headers | awk '{print $1; exit}')
-# Apply the taint to the dynamically fetched node name
-kubectl taint nodes $NODE_NAME node-role.kubernetes.io/control-plane:NoSchedule-
-
-# Write and save a new file for token
-
-cat <<EOF > k8s-dashboard-account.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: admin-user
-  namespace: kube-system
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: admin-user
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
-  name: admin-user
-  namespace: kube-system
-EOF
-
-# Create user
-kubectl create -f k8s-dashboard-account.yaml
-
-# Get token for Kubernetes-Dashboard at https://hostname -p 
-kubectl -n kube-system create token admin-user
-
-kubeadm token create --print-join-command
-
-kubectl get nodes
-CUSTOMER_ID="K012345"
-# Clone the repository
-mkdir -p "/root/${CUSTOMER_ID}_iotc" && cd "/root/${CUSTOMER_ID}_iotc"
-git clone https://bitbucket.org/enocean-cloud/iotconnector-docs.git
-# Navigate to the directory where docker-compose.yml is located
-cd /root/${CUSTOMER_ID}_iotc/iotconnector-docs/deploy/local_deployment
-# Create a directory for certificates
-mkdir -p "/root/${CUSTOMER_ID}_iotc/certs"
-# Generate self-signed certificates
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.key" -out "/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.crt" -subj "/C=SE/ST=State/L=City/O=Organization/CN=localhost"
-# Update docker-compose.yml with the new certificate paths
-sed -i "s|../nginx/dev.localhost.crt|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.crt|" docker-compose.yml
-sed -i "s|../nginx/dev.localhost.key|/root/${CUSTOMER_ID}_iotc/certs/${CUSTOMER_ID}_dev.localhost.key|" docker-compose.yml
-# Update docker-compose.yml file proxy name and user
-sed -i 's/BASIC_AUTH_USERNAME=.*/BASIC_AUTH_USERNAME=admin/' docker-compose.yml
-sed -i 's/BASIC_AUTH_PASSWORD=.*/BASIC_AUTH_PASSWORD=Random123/' docker-compose.yml
-# Create localhost.ext file
-CURRENT_IP=$(hostname -I | awk '{print $1}')
-cat > "/root/${CUSTOMER_ID}_iotc/certs/localhost.ext" <<EOF
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-subjectAltName = @alt_names
-subjectKeyIdentifier = hash
-[alt_names]
-DNS.1 = localhost
-IP.1 = $CURRENT_IP
-EOF
-
-sleep 1m
-
-# Get the current host primary IP address
-HOST_IP=$(hostname -I | awk '{print $1}')
-
-# Debug: Print the HOST_IP to verify it's being set correctly
-echo "Detected HOST_IP: $HOST_IP"
-
-# Check if HOST_IP is empty and abort if so
-if [ -z "$HOST_IP" ]; then
-  echo "No IP address detected. Please check your network configuration."
+# Read the namespace name from the file, if it exists
+if [ -f "$NAMESPACE_FILE" ]; then
+  NAMESPACE_NAME=$(cat "$NAMESPACE_FILE")
+else
+  echo "Namespace file $NAMESPACE_FILE does not exist. Exiting."
   exit 1
 fi
 
-# Export POD_NAME using kubectl to get the name of the Kubernetes dashboard pod
-export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
+# Check if the namespace name is not empty
+if [ -z "$NAMESPACE_NAME" ]; then
+  echo "Namespace name is empty. Please provide a valid name in $NAMESPACE_FILE."
+  exit 1
+fi
 
-# Echo the HTTPS URL with the dynamically fetched host IP
-echo "https://$HOST_IP"
+# Check if the namespace exists, and create it if it does not
+if ! kubectl get namespace "${NAMESPACE_NAME}" > /dev/null 2>&1; then
+  echo "Namespace ${NAMESPACE_NAME} not found. Creating it..."
+  kubectl create namespace "${NAMESPACE_NAME}"
+fi
 
-# Forward the port from the Kubernetes dashboard pod to the host, using the dynamically fetched host IP
-kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $HOST_IP
+# Define the namespace directory path
+namespace_dir="./${NAMESPACE_NAME}"
+# Ensure the customer-specific directory exists
+mkdir -p "${namespace_dir}"
 
-# Optionally, you can echo the URL again for convenience
-echo "https://$HOST_IP"
+# Function to create PV files with specific configurations
+create_pv() {
+  local name="$1"
+  local pv_name="${name}-volume"  # Append '-volume' to the PV name
+  local pv_file="${namespace_dir}/${pv_name}.yaml"  # Create PV file inside namespace directory
+
+  cat <<EOF >"${pv_file}"
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${pv_name}
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data/${NAMESPACE_NAME}/${name}"
+EOF
+}
+
+create_pvc() {
+  local name="$1"
+  local pvc_file="${namespace_dir}/${name}.yaml"  # Create PVC file inside namespace directory
+
+  cat <<EOF >"${pvc_file}"
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${name}
+  namespace: $NAMESPACE_NAME
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+EOF
+}
+
+
+# Function to create a Network Policy that allows traffic within the same namespace
+create_network_policy() {
+  cat <<EOF >"allow-same-namespace-${NAMESPACE_NAME}.yaml"
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: $NAMESPACE_NAME
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector: {}
+EOF
+}
+
+# Names for the PVs and PVCs to be created
+names=("api-claim0" "fluentd-claim0" "fluentd-claim1" "redis-volume")
+
+# Create PV and PVC files for each name
+for name in "${names[@]}"; do
+  create_pv "$name"
+  create_pvc "$name"
+done
+
+# Create Network Policy
+create_network_policy
+
+# Apply the Network Policy
+kubectl apply -f "allow-same-namespace-${NAMESPACE_NAME}.yaml"
+
+# Additional YAML files to update with the namespace
+FILES=(
+  "ingress-service.yaml"
+  "mqtt-service.yaml"
+  "proxy-service.yaml"
+  "secret-proxy-key-secret.yaml"
+  "engine-deployment.yaml"
+  "integration-deployment.yaml"
+  "rabbitmq-deployment.yaml"
+  "api-deployment.yaml"
+  "fluentd-deployment.yaml"
+  "rabbitmq-service.yaml"
+  "redis-service.yaml"
+  "api-service.yaml"
+  "ingress-deployment.yaml"
+  "mqtt-deployment.yaml"
+  "proxy-deployment.yaml"
+  "redis-deployment.yaml"
+  "secret-proxy-certificate-secret.yaml"
+)
+
+# Function to organize Kubernetes configuration files and apply them
+prepare_and_apply_resources() {
+  local namespace_dir="./${NAMESPACE_NAME}"
+
+  # Create a directory for the namespace if it doesn't already exist
+  mkdir -p "${namespace_dir}"
+
+  # Copy each file into the namespace directory
+  for file in "${FILES[@]}"; do
+    if [ -f "$file" ]; then
+      cp "$file" "${namespace_dir}/"
+    else
+      echo "Warning: File '$file' not found and will not be copied."
+    fi
+  done
+
+  # Apply all configurations in the namespace directory
+  kubectl apply -f "${namespace_dir}/"
+}
+
+# Organize and apply the additional Kubernetes configurations
+prepare_and_apply_resources
+
+echo "PV and PVC files have been created, and existing files updated with namespace $NAMESPACE_NAME successfully. Additional configurations have been organized and applied."
