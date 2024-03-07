@@ -5,7 +5,7 @@ sudo systemctl stop unattended-upgrades.service
 sudo systemctl disable unattended-upgrades.service
 
 #make storage for kubernetes
-mkdir -p /path/storage/node
+mkdir -p /mnt/data
 
 # Function to check for dpkg/apt lock
 wait_for_apt_locks() {
