@@ -1,40 +1,38 @@
 #!/bin/bash
 
-# Define the file path for the namespace name
-NAMESPACE_FILE="namespace_name.txt"
-
-# Read the namespace name from the file, if it exists
-if [ -f "$NAMESPACE_FILE" ]; then
-  NAMESPACE_NAME=$(cat "$NAMESPACE_FILE")
+# Check for yq and install if not found
+if ! command -v yq &> /dev/null; then
+    echo "yq could not be found. Attempting to install it..."
+    snap install yq
+    if ! command -v yq &> /dev/null; then
+        echo "Failed to install yq. Please install it manually."
+        exit 1
+    fi
 else
-  echo "Namespace file $NAMESPACE_FILE does not exist. Exiting."
-  exit 1
+    echo "yq is already installed."
 fi
 
-# Check if the namespace name is not empty
-if [ -z "$NAMESPACE_NAME" ]; then
-  echo "Namespace name is empty. Please provide a valid name in $NAMESPACE_FILE."
-  exit 1
-fi
+echo "Current working directory: $(pwd)"
+
+# Directly define the namespace name here 
+NAMESPACE_NAME="customer2002"
 
 # Check if the namespace exists, and create it if it does not
 if ! kubectl get namespace "${NAMESPACE_NAME}" > /dev/null 2>&1; then
-  echo "Namespace ${NAMESPACE_NAME} not found. Creating it..."
-  kubectl create namespace "${NAMESPACE_NAME}"
+    echo "Namespace ${NAMESPACE_NAME} not found. Creating it..."
+    kubectl create namespace "${NAMESPACE_NAME}"
 fi
 
 # Define the namespace directory path
 namespace_dir="./${NAMESPACE_NAME}"
 # Ensure the customer-specific directory exists
 mkdir -p "${namespace_dir}"
-
-# Function to create PV files with specific configurations
 create_pv() {
-  local name="$1"
-  local pv_name="${name}-volume-${NAMESPACE_NAME}"  # Include namespace in the PV name
-  local pv_file="${namespace_dir}/${pv_name}.yaml"  # Create PV file inside namespace directory
+    local name="$1"
+    local pv_name="${name}-volume-${NAMESPACE_NAME}" # Include namespace in the PV name
+    local pv_file="${namespace_dir}/${pv_name}.yaml" # Create PV file inside namespace directory
 
-  cat <<EOF >"${pv_file}"
+    cat <<EOF >"${pv_file}"
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -53,11 +51,11 @@ EOF
 }
 
 create_pvc() {
-  local name="$1"
-  local pvc_name="${name}-${NAMESPACE_NAME}"  # Include namespace in the PVC name
-  local pvc_file="${namespace_dir}/${pvc_name}.yaml"  # Create PVC file inside namespace directory
+    local name="$1"
+    local pvc_name="${name}-${NAMESPACE_NAME}" # Include namespace in the PVC name
+    local pvc_file="${namespace_dir}/${pvc_name}.yaml" # Create PVC file inside namespace directory
 
-  cat <<EOF >"${pvc_file}"
+    cat <<EOF >"${pvc_file}"
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -73,9 +71,8 @@ spec:
 EOF
 }
 
-# Function to create a Network Policy that allows traffic within the same namespace
 create_network_policy() {
-  cat <<EOF >"${namespace_dir}/allow-same-namespace-${NAMESPACE_NAME}.yaml"
+    cat <<EOF >"${namespace_dir}/allow-same-namespace-${NAMESPACE_NAME}.yaml"
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -84,29 +81,59 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - podSelector: {}
+    - from:
+      - podSelector: {}
 EOF
 }
-
 # Names for the PVs and PVCs to be created
 names=("api-claim0" "fluentd-claim0" "fluentd-claim1" "redis-volume")
 
+# Function to create a DaemonSet to ensure host paths on all nodes
+create_daemonset_to_ensure_hostpaths() {
+    cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ensure-hostpaths
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: ensure-hostpaths
+  template:
+    metadata:
+      labels:
+        name: ensure-hostpaths
+    spec:
+      containers:
+      - name: ensure-hostpaths
+        image: busybox
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            set -xe
+            for name in ${names[@]}; do
+              mkdir -p /host/mnt/data/${NAMESPACE_NAME}/$name && chmod -R 777 /host/mnt/data/${NAMESPACE_NAME}/$name;
+            done
+        volumeMounts:
+        - name: host-root
+          mountPath: /host
+          readOnly: false
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+EOF
+}
+
 # Create PV and PVC files for each name
 for name in "${names[@]}"; do
-  create_pv "$name"
-  create_pvc "$name"
+    create_pv "$name"
+    create_pvc "$name"
 done
-
-# Create Network Policy
-create_network_policy
-
-# Apply the Network Policy and all resources
-kubectl apply -f "${namespace_dir}/"
-
-# Additional YAML files to update with the namespace and prepare for application
+# Define the list of additional Kubernetes YAML files to process
 FILES=(
   "ingress-service.yaml"
   "mqtt-service.yaml"
@@ -127,20 +154,59 @@ FILES=(
   "secret-proxy-certificate-secret.yaml"
 )
 
-# Organize and apply the additional Kubernetes configurations
-prepare_and_apply_resources() {
-  for file in "${FILES[@]}"; do
-    if [ -f "$file" ]; then
-      cp "$file" "${namespace_dir}/"
-    else
-      echo "Warning: File '$file' not found and will not be copied."
-    fi
-  done
-
-  # Apply all configurations in the namespace directory
-  kubectl apply -f "${namespace_dir}/"
+# Function to add namespace to Kubernetes YAML files using yq
+add_namespace_with_yq() {
+    echo "Adding namespaces to Kubernetes YAML files..."
+    for file in "${FILES[@]}"; do
+        local file_path="${file}"
+        if [ -f "$file_path" ]; then
+            echo "Processing file: $file_path"
+            local target_file="${namespace_dir}/$(basename "$file_path")"
+            # Copy the file to the namespace directory
+            cp "$file_path" "$target_file"
+            # Use yq to insert the namespace
+            yq eval ".metadata.namespace = \"$NAMESPACE_NAME\"" -i "$target_file"
+            echo "Namespace added to $target_file"
+        else
+            echo "Warning: File '$file_path' not found and will not be copied or updated."
+        fi
+    done
 }
 
-prepare_and_apply_resources
+# Adjust proxy deployment for correct secret mounting
+adjust_proxy_deployment() {
+    local proxy_deployment_file="${namespace_dir}/proxy-deployment.yaml"
+    if [ -f "$proxy_deployment_file" ]; then
+        echo "Adjusting proxy deployment for correct secret mounting..."
+        yq eval '
+            .spec.template.spec.containers[0].volumeMounts[0].subPath = "cert.crt" |
+            .spec.template.spec.containers[0].volumeMounts[0].mountPath = "/etc/nginx/certs/cert.crt" |
+            .spec.template.spec.containers[0].volumeMounts[1].subPath = "cert.key" |
+            .spec.template.spec.containers[0].volumeMounts[1].mountPath = "/etc/nginx/certs/cert.key"
+        ' -i "$proxy_deployment_file"
+    else
+        echo "Proxy deployment file not found, skipping adjustment."
+    fi
+}
 
-echo "PV, PVC files, and network policies have been created, and existing files updated with namespace $NAMESPACE_NAME successfully. Additional configurations have been organized and applied."
+# Apply namespace to all specified Kubernetes YAML files
+add_namespace_with_yq
+
+# Adjust the proxy deployment
+adjust_proxy_deployment
+
+# Applying all generated Kubernetes YAML configurations within the namespace directory
+echo "Applying all Kubernetes configurations within the $namespace_dir directory..."
+kubectl apply -f "$namespace_dir/"
+if [ $? -eq 0 ]; then
+    echo "Successfully applied Kubernetes configurations."
+else
+    echo "Failed to apply some or all Kubernetes configurations."
+    exit 1
+fi
+
+# Create the DaemonSet to ensure host paths on all nodes
+create_daemonset_to_ensure_hostpaths
+
+# Create Network Policy
+create_network_policy
