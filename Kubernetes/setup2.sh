@@ -152,7 +152,7 @@ EOF
 # Create user
 kubectl create -f k8s-dashboard-account.yaml
 
-# Get token for Kubernetes-Dashboard at https://hostname -p 
+# Get token for Kubernetes-Dashboard at https://hostname -p
 kubectl -n kube-system create token admin-user
 
 kubeadm token create --print-join-command
@@ -207,14 +207,8 @@ if [ -z "$HOST_IP" ]; then
   exit 1
 fi
 
-# Export POD_NAME using kubectl to get the name of the Kubernetes dashboard pod
-export POD_NAME=$(kubectl get pods -n kubernetes-dashboard -l "app.kubernetes.io/name=kubernetes-dashboard,app.kubernetes.io/instance=kubernetes-dashboard" -o jsonpath="{.items[0].metadata.name}")
+# Portforward using $HOSTIP variable
+kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 8443:443 --address $HOST_IP
 
 # Echo the HTTPS URL with the dynamically fetched host IP
-echo "https://$HOST_IP"
-
-# Forward the port from the Kubernetes dashboard pod to the host, using the dynamically fetched host IP
-kubectl -n kubernetes-dashboard port-forward $POD_NAME 8443:8443 --address $HOST_IP
-
-# Optionally, you can echo the URL again for convenience
 echo "https://$HOST_IP"
