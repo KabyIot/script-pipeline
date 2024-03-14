@@ -1,5 +1,5 @@
 #!/bin/bash
-
+ 
 # Check for yq and install if not found
 if ! command -v yq &> /dev/null; then
     echo "yq could not be found. Attempting to install it..."
@@ -11,27 +11,28 @@ if ! command -v yq &> /dev/null; then
 else
     echo "yq is already installed."
 fi
-
+ 
 echo "Current working directory: $(pwd)"
-
-# Directly define the namespace name here 
-NAMESPACE_NAME="customer2002"
-
+ 
+# Directly define the namespace name here
+NAMESPACE_NAME="customer3003"
+ 
 # Check if the namespace exists, and create it if it does not
 if ! kubectl get namespace "${NAMESPACE_NAME}" > /dev/null 2>&1; then
     echo "Namespace ${NAMESPACE_NAME} not found. Creating it..."
     kubectl create namespace "${NAMESPACE_NAME}"
 fi
-
+ 
 # Define the namespace directory path
 namespace_dir="./${NAMESPACE_NAME}"
 # Ensure the customer-specific directory exists
 mkdir -p "${namespace_dir}"
+
 create_pv() {
     local name="$1"
-    local pv_name="${name}-volume-${NAMESPACE_NAME}" # Include namespace in the PV name
-    local pv_file="${namespace_dir}/${pv_name}.yaml" # Create PV file inside namespace directory
-
+    local pv_name="${name}-volume-${NAMESPACE_NAME}"
+    local pv_file="${namespace_dir}/${pv_name}.yaml"
+ 
     cat <<EOF >"${pv_file}"
 apiVersion: v1
 kind: PersistentVolume
@@ -39,6 +40,7 @@ metadata:
   name: ${pv_name}
   labels:
     type: local
+    volume: ${name}-${NAMESPACE_NAME}
 spec:
   storageClassName: manual
   capacity:
@@ -49,12 +51,12 @@ spec:
     path: "/mnt/data/${NAMESPACE_NAME}/${name}"
 EOF
 }
-
+ 
 create_pvc() {
     local name="$1"
-    local pvc_name="${name}-${NAMESPACE_NAME}" # Include namespace in the PVC name
-    local pvc_file="${namespace_dir}/${pvc_name}.yaml" # Create PVC file inside namespace directory
-
+    local pvc_name="${name}-${NAMESPACE_NAME}"
+    local pvc_file="${namespace_dir}/${pvc_name}.yaml"
+ 
     cat <<EOF >"${pvc_file}"
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -68,6 +70,9 @@ spec:
   resources:
     requests:
       storage: 100Mi
+  selector:
+    matchLabels:
+      volume: ${name}-${NAMESPACE_NAME}
 EOF
 }
 
@@ -87,9 +92,10 @@ spec:
       - podSelector: {}
 EOF
 }
+ 
 # Names for the PVs and PVCs to be created
 names=("api-claim0" "fluentd-claim0" "fluentd-claim1" "redis-volume")
-
+ 
 # Function to create a DaemonSet to ensure host paths on all nodes
 create_daemonset_to_ensure_hostpaths() {
     cat <<EOF | kubectl apply -f -
@@ -133,6 +139,8 @@ for name in "${names[@]}"; do
     create_pv "$name"
     create_pvc "$name"
 done
+ 
+
 # Define the list of additional Kubernetes YAML files to process
 FILES=(
   "ingress-service.yaml"
@@ -153,7 +161,7 @@ FILES=(
   "redis-deployment.yaml"
   "secret-proxy-certificate-secret.yaml"
 )
-
+ 
 # Function to add namespace to Kubernetes YAML files using yq
 add_namespace_with_yq() {
     echo "Adding namespaces to Kubernetes YAML files..."
@@ -169,6 +177,23 @@ add_namespace_with_yq() {
             echo "Namespace added to $target_file"
         else
             echo "Warning: File '$file_path' not found and will not be copied or updated."
+        fi
+    done
+}
+
+adjust_deployment_pvc_references() {
+    echo "Adjusting PVC references in deployment files..."
+    for file in "${FILES[@]}"; do
+        if [[ "$file" == *"-deployment.yaml" ]]; then
+            local deployment_file="${namespace_dir}/$(basename "$file")"
+            echo "Processing $deployment_file for PVC name adjustments..."
+            if [ -f "$deployment_file" ]; then
+                # Append the namespace to the claimName of all persistent volume claims
+                yq eval '.spec.template.spec.volumes[].persistentVolumeClaim.claimName |= sub("$"; "-'${NAMESPACE_NAME}'")' -i "$deployment_file"
+                echo "Updated PVC references in $deployment_file to include -${NAMESPACE_NAME}"
+            else
+                echo "Deployment file $deployment_file not found."
+            fi
         fi
     done
 }
@@ -189,11 +214,20 @@ adjust_proxy_deployment() {
     fi
 }
 
-# Apply namespace to all specified Kubernetes YAML files
+# Apply namespace adjustments to all specified Kubernetes YAML files
 add_namespace_with_yq
+
+# Adjust PVC references in all deployment files before applying configurations
+adjust_deployment_pvc_references
 
 # Adjust the proxy deployment
 adjust_proxy_deployment
+
+# Apply the function to create the Network Policy
+create_network_policy
+ 
+# Deploy the DaemonSet to ensure host paths are available across all nodes
+create_daemonset_to_ensure_hostpaths
 
 # Applying all generated Kubernetes YAML configurations within the namespace directory
 echo "Applying all Kubernetes configurations within the $namespace_dir directory..."
@@ -205,8 +239,4 @@ else
     exit 1
 fi
 
-# Create the DaemonSet to ensure host paths on all nodes
-create_daemonset_to_ensure_hostpaths
-
-# Create Network Policy
-create_network_policy
+echo "Script execution completed."
