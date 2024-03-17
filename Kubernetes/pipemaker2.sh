@@ -1,4 +1,5 @@
 #!/bin/bash
+
  
 # Check for yq and install if not found
 if ! command -v yq &> /dev/null; then
@@ -189,14 +190,9 @@ adjust_deployment_pvc_references() {
             local deployment_file="${namespace_dir}/$(basename "$file")"
             echo "Processing $deployment_file for PVC name adjustments..."
             if [ -f "$deployment_file" ]; then
-                # Check if the deployment file contains PVC references
-                if yq e '.spec.template.spec.volumes[] | select(.persistentVolumeClaim != null)' "$deployment_file" > /dev/null; then
-                    # Append the namespace to the claimName of all persistent volume claims
-                    yq e '.spec.template.spec.volumes[].persistentVolumeClaim.claimName |= sub("$"; "-'${NAMESPACE_NAME}'")' -i "$deployment_file"
-                    echo "Updated PVC references in $deployment_file to include -${NAMESPACE_NAME}"
-                else
-                    echo "No PVC references found in $deployment_file, skipping."
-                fi
+                # Append the namespace to the claimName of all persistent volume claims
+                yq eval '.spec.template.spec.volumes[].persistentVolumeClaim.claimName |= sub("$"; "-'${NAMESPACE_NAME}'")' -i "$deployment_file"
+                echo "Updated PVC references in $deployment_file to include -${NAMESPACE_NAME}"
             else
                 echo "Deployment file $deployment_file not found."
             fi
@@ -211,11 +207,11 @@ adjust_deployment_security_context() {
     local fluentd_deployment_file="${namespace_dir}/fluentd-deployment.yaml"
     if [ -f "$fluentd_deployment_file" ]; then
         echo "Processing $fluentd_deployment_file for security context adjustments..."
-        
+       
         # Correctly set securityContext at the pod level for fsGroup and at the container level for running as root(fixing missing data after using kompose convert)
         yq e '.spec.template.spec.securityContext = {"fsGroup": 0}' -i "$fluentd_deployment_file"
         yq e '.spec.template.spec.containers[].securityContext = {"runAsUser": 0, "runAsGroup": 0, "allowPrivilegeEscalation": true}' -i "$fluentd_deployment_file"
-        
+       
         echo "Updated security context in $fluentd_deployment_file to correctly apply run as root"
     else
         echo "Fluentd deployment file $fluentd_deployment_file not found."
