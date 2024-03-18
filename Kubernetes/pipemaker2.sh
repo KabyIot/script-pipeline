@@ -1,6 +1,5 @@
 #!/bin/bash
 
- 
 # Check for yq and install if not found
 if ! command -v yq &> /dev/null; then
     echo "yq could not be found. Attempting to install it..."
@@ -14,16 +13,16 @@ else
 fi
 
 echo "Current working directory: $(pwd)"
- 
+
 # Directly define the namespace name here
-NAMESPACE_NAME="customer3003"
- 
+NAMESPACE_NAME="customer1008"
+
 # Check if the namespace exists, and create it if it does not
 if ! kubectl get namespace "${NAMESPACE_NAME}" > /dev/null 2>&1; then
     echo "Namespace ${NAMESPACE_NAME} not found. Creating it..."
     kubectl create namespace "${NAMESPACE_NAME}"
 fi
- 
+
 # Define the namespace directory path
 namespace_dir="./${NAMESPACE_NAME}"
 # Ensure the customer-specific directory exists
@@ -33,7 +32,7 @@ create_pv() {
     local name="$1"
     local pv_name="${name}-volume-${NAMESPACE_NAME}"
     local pv_file="${namespace_dir}/${pv_name}.yaml"
- 
+
     cat <<EOF >"${pv_file}"
 apiVersion: v1
 kind: PersistentVolume
@@ -52,12 +51,12 @@ spec:
     path: "/mnt/data/${NAMESPACE_NAME}/${name}"
 EOF
 }
- 
+
 create_pvc() {
     local name="$1"
     local pvc_name="${name}-${NAMESPACE_NAME}"
     local pvc_file="${namespace_dir}/${pvc_name}.yaml"
- 
+
     cat <<EOF >"${pvc_file}"
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -93,10 +92,10 @@ spec:
       - podSelector: {}
 EOF
 }
- 
+
 # Names for the PVs and PVCs to be created
 names=("api-claim0" "fluentd-claim0" "fluentd-claim1" "redis-volume")
- 
+
 # Function to create a DaemonSet to ensure host paths on all nodes
 create_daemonset_to_ensure_hostpaths() {
     cat <<EOF | kubectl apply -f -
@@ -140,7 +139,7 @@ for name in "${names[@]}"; do
     create_pv "$name"
     create_pvc "$name"
 done
- 
+
 
 # Define the list of additional Kubernetes YAML files to process
 FILES=(
@@ -162,7 +161,7 @@ FILES=(
   "redis-deployment.yaml"
   "secret-proxy-certificate-secret.yaml"
 )
- 
+
 # Function to add namespace to Kubernetes YAML files using yq (fixing missing data after using kompose convert)
 add_namespace_with_yq() {
     echo "Adding namespaces to Kubernetes YAML files..."
@@ -180,6 +179,24 @@ add_namespace_with_yq() {
             echo "Warning: File '$file_path' not found and will not be copied or updated."
         fi
     done
+}
+
+# Function to remove hostPort configurations from deployment YAML files
+remove_hostPort_from_deployments() {
+  echo "Removing hostPort configurations from deployment files..."
+  local deployment_files=("mqtt-deployment.yaml" "proxy-deployment.yaml" "rabbitmq-deployment.yaml")
+ 
+  for file_name in "${deployment_files[@]}"; do
+    local file_path="${namespace_dir}/${file_name}"
+    if [ -f "$file_path" ]; then
+      echo "Processing file: $file_path"
+      # Use yq to delete hostPort from the container ports
+      yq eval 'del(.spec.template.spec.containers[].ports[].hostPort)' -i "$file_path"
+      echo "Removed hostPort configurations from $file_path"
+    else
+      echo "Warning: File '$file_path' not found. Skipping removal of hostPort."
+    fi
+  done
 }
 
 # Adjust Deployment pvc references (fixing missing data after using kompose convert)
@@ -207,18 +224,16 @@ adjust_deployment_security_context() {
     local fluentd_deployment_file="${namespace_dir}/fluentd-deployment.yaml"
     if [ -f "$fluentd_deployment_file" ]; then
         echo "Processing $fluentd_deployment_file for security context adjustments..."
-       
+
         # Correctly set securityContext at the pod level for fsGroup and at the container level for running as root(fixing missing data after using kompose convert)
         yq e '.spec.template.spec.securityContext = {"fsGroup": 0}' -i "$fluentd_deployment_file"
         yq e '.spec.template.spec.containers[].securityContext = {"runAsUser": 0, "runAsGroup": 0, "allowPrivilegeEscalation": true}' -i "$fluentd_deployment_file"
-       
+
         echo "Updated security context in $fluentd_deployment_file to correctly apply run as root"
     else
         echo "Fluentd deployment file $fluentd_deployment_file not found."
     fi
 }
-
-
 
 # Adjust proxy deployment for correct secret mounting(fixing missing data after using kompose convert)
 adjust_proxy_deployment() {
@@ -240,6 +255,9 @@ adjust_proxy_deployment() {
 # Apply namespace adjustments to all specified Kubernetes YAML files
 add_namespace_with_yq
 
+# Remove hostPort configurations from the specified deployment files
+remove_hostPort_from_deployments
+
 # Adjust PVC references in all deployment files before applying configurations
 adjust_deployment_pvc_references
 
@@ -251,7 +269,7 @@ adjust_proxy_deployment
 
 # Apply the function to create the Network Policy
 create_network_policy
- 
+
 # Deploy the DaemonSet to ensure host paths are available across all nodes
 create_daemonset_to_ensure_hostpaths
 
