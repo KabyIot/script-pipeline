@@ -261,7 +261,7 @@ remove_hostPort_from_deployments
 # Adjust PVC references in all deployment files before applying configurations
 adjust_deployment_pvc_references
 
-# NEW: Adjust the security context in all deployment files
+# Adjust the security context in all deployment files
 adjust_deployment_security_context
 
 # Adjust the proxy deployment
